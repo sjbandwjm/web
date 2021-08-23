@@ -1,0 +1,43 @@
+
+# vscode settings
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+
+#temp file
+build/
+.build/
+track_agent/vendor/
+stress_test/result/
+stress_test/data/
+stress_test/stress
+*.log
+
+# cmake build dir
+.idea/
+cmake-build-debug/
+cmake-build-dev/
+cmake-build-debug-ubuntu/
+cmake-build-debug-gsx-dev/
+scripts/start_hook.sh
+
+# cmake for lsp
+/compile_commands.json
+/.clangd
+
+# test data
+/data
+/_test.py
+
+# core
+core.*
+
+# build docker
+Dockerfile
+
+# node modules
+src/thunder/demo/node_modules
+
+# temp scripts
+check_log.sh
+

@@ -1,0 +1,7 @@
+[submodule "thirdparty"]
+[submodule "thirdparty/uWebsockets"]
+	path = thirdparty/uWebsockets
+	url = http://github.com/uNetworking/uWebSockets.git
+[submodule "thirdparty/brpc"]
+	path = thirdparty/brpc
+	url = https://github.com/apache/incubator-brpc.git
