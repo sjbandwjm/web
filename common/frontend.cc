@@ -1,6 +1,6 @@
-#include "lightning/base/frontend.h"
+#include "frontend.h"
 
-namespace lightning::websocket {
+namespace jiayou::websocket {
 DEFINE_double(ws_global_cps_limit_capacity, 10000, "CPS rate limiter capacity");
 DEFINE_double(ws_global_cps_limit_rate_s, 5000, "CPS limit");
 DEFINE_int32(ws_connection_count_limit, 100000, "max concurrent connections handled by this server");

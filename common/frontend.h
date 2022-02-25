@@ -21,7 +21,7 @@
 #include "bvar/passive_status.h"
 #include "bvar/bvar.h"
 
-namespace lightning::websocket {
+namespace jiayou::websocket {
 
 DECLARE_double(ws_global_cps_limit_capacity);
 DECLARE_double(ws_global_cps_limit_rate_s);
@@ -37,10 +37,11 @@ inline int64_t GetCurrentTimeMs() {
 template <typename T, bool SSL>
 class Server {
  public:
+  struct PerSocketData;
   struct HandleContext {
     Server* server;
     uWS::Loop* loop;
-    uWS::WebSocket<SSL, true>* ws;
+    uWS::WebSocket<SSL, true, PerSocketData>* ws;
     std::string ip;
     std::string ua;
 
@@ -52,10 +53,11 @@ class Server {
     bool opened{false};
     // base::RateLimiter limiter;
 
-    LTN_COUNT_OBJECT(PerSocketData);
+    // LTN_COUNT_OBJECT(PerSocketData);
   };
 
-  typedef std::weak_ptr<HandleContext> ConnectionHdl;
+  typedef std::shared_ptr<HandleContext> HandleContextPtr;
+  typedef typename HandleContextPtr::weak_type ConnectionHdl;
 
   struct Context {
     int64_t cpuwide_time_us;
@@ -68,7 +70,9 @@ class Server {
 
   typedef uWS::TemplatedApp<SSL> UWSServer;
   typedef uWS::HttpResponse<SSL> HttpResponse;
-  typedef std::function<void(uWS::HttpResponse<SSL>*, uWS::HttpRequest*, const std::shared_ptr<HandleContext>&)> UpgradeHandler;
+  typedef uWS::HttpRequest HttpRequest;
+
+  typedef std::function<void(HttpResponse*, HttpRequest*, const HandleContextPtr&)> UpgradeHandler;
   typedef std::function<void(Context, const std::string&, uWS::OpCode)> MessageHandler;
   typedef std::function<void(Context)> OpenHandler;
   typedef std::function<void(Context, int, std::string_view)> CloseHandler;
@@ -159,11 +163,11 @@ class Server {
     http_handlers_.emplace(pattern, std::move(fn));
   }
 
-  bool Init(int port, int threadCnt) {
-    ws_send.expose(absl::StrCat("websocket_", port, "_send"));
-    ws_receive_qps.expose(absl::StrCat("websocket_", port, "_receive_qps"));
-    ws_connection_cps.expose(absl::StrCat("websocket_", port, "_connection_cps"));
-    ws_connection_count.expose(absl::StrCat("websocket_", port, "_connection_count"));
+  bool InitAndRun(int port, int threadCnt) {
+    ws_send.expose("websocket_" + std::to_string(port) + "_send");
+    ws_receive_qps.expose("websocket_" + std::to_string(port) + "_receive_qps");
+    ws_connection_cps.expose("websocket_" + std::to_string(port) + "_connection_cps");
+    ws_connection_count.expose("websocket_" + std::to_string(port) + "_connection_count");
 
     CHECK(threadCnt <= kMaxThreadCnt);
     thread_cnt_ = threadCnt;
@@ -197,28 +201,60 @@ class Server {
     //此模版类中调用其他 模版类的 模版函数
     endpontPtr->template ws<PerSocketData>("/*", {
       .compression = uWS::SHARED_COMPRESSOR,
-      .maxPayloadLength = 16 * 1024,
-      .idleTimeout = 6000000,  //空闲状态超时关闭
+      .maxPayloadLength = 16 * 1024 * 1024,
+      .idleTimeout = 16,
       .maxBackpressure = 1 * 1024 * 1024,
+      .closeOnBackpressureLimit = false,
+      .resetIdleTimeoutOnSend = false,
+      .sendPingsAutomatically = true,
+      .maxLifetime = 0,
       /* Handlers */
-      .upgrade = std::bind(&Server::Upgrade_, this,
-                           std::placeholders::_1,
-                           std::placeholders::_2,
-                           std::placeholders::_3),
-      .open = std::bind(&Server::Open_, this, std::placeholders::_1),
-      .message = std::bind(&Server::Message_,
-                           this,
-                          std::placeholders::_1,
-                          std::placeholders::_2,
-                          std::placeholders::_3),
-      .drain = nullptr,
-      .ping = std::bind(&Server::Ping_, this, std::placeholders::_1),
-      .pong = std::bind(&Server::Pong_, this, std::placeholders::_1),
-      .close =std::bind(&Server::Close_,
-                        this,
-                        std::placeholders::_1,
-                        std::placeholders::_2,
-                        std::placeholders::_3),
+      .upgrade = [this](auto* res, auto* req, auto* socket) {
+        this->Upgrade_(res, req, socket);
+      },
+
+      .open = [this](auto* ws) {
+          this->Open_(ws);
+      },
+
+      .message = [this](auto *ws, std::string_view message, uWS::OpCode opCode) {
+          this->Message_(ws, message, opCode);
+      },
+
+      .drain = [](auto */*ws*/) {
+          /* Check ws->getBufferedAmount() here */
+      },
+
+      .ping = [](auto */*ws*/, std::string_view) {
+          /* Not implemented yet */
+      },
+
+      .pong = [](auto */*ws*/, std::string_view) {
+          /* Not implemented yet */
+      },
+
+      .close = [this](auto* ws, int code, std::string_view message) {
+          /* You may access ws->getUserData() here */
+          this->Close_(ws, code, message);
+      }
+      // .upgrade = std::bind(&Server::Upgrade_, this,
+      //                      std::placeholders::_1,
+      //                      std::placeholders::_2,
+      //                      std::placeholders::_3),
+      // .open = std::bind(&Server::Open_, this, std::placeholders::_1),
+      // .message = std::bind(&Server::Message_,
+      //                      this,
+      //                     std::placeholders::_1,
+      //                     std::placeholders::_2,
+      //                     std::placeholders::_3),
+      // .drain = nullptr,
+      // .ping = std::bind(&Server::Ping_, this, std::placeholders::_1),
+      // .pong = std::bind(&Server::Pong_, this, std::placeholders::_1),
+      // .close =std::bind(&Server::Close_,
+      //                   this,
+      //                   std::placeholders::_1,
+      //                   std::placeholders::_2,
+      //                   std::placeholders::_3)
     });
 
     for (auto it: http_handlers_) {
@@ -275,7 +311,7 @@ class Server {
       );
   }
 
-  void Open_(uWS::WebSocket<SSL, true>* ws) {
+  void Open_(uWS::WebSocket<SSL, true, PerSocketData>* ws) {
     Context ctx{
       .cpuwide_time_us = butil::cpuwide_time_us()
     };
@@ -313,7 +349,7 @@ class Server {
     hdls_.on_open(ctx);
   }
 
-  void Message_(uWS::WebSocket<SSL, true>* ws, std::string_view message, uWS::OpCode opCode) {
+  void Message_(uWS::WebSocket<SSL, true, PerSocketData>* ws, std::string_view message, uWS::OpCode opCode) {
     Context ctx{
       .cpuwide_time_us = butil::cpuwide_time_us()
     };
@@ -332,7 +368,7 @@ class Server {
     hdls_.on_message(ctx, msg, opCode);
   }
 
-  void Ping_(uWS::WebSocket<SSL, true>* ws) {
+  void Ping_(uWS::WebSocket<SSL, true, PerSocketData>* ws) {
     auto user_data = static_cast<PerSocketData *>(ws->getUserData());
 
     Context ctx{
@@ -343,7 +379,7 @@ class Server {
     hdls_.on_ping(ctx);
   }
 
-  void Pong_(uWS::WebSocket<SSL, true>* ws) {
+  void Pong_(uWS::WebSocket<SSL, true, PerSocketData>* ws) {
     auto user_data = static_cast<PerSocketData *>(ws->getUserData());
 
     Context ctx{
@@ -354,7 +390,7 @@ class Server {
     hdls_.on_pong(ctx);
   }
 
-  void Close_(uWS::WebSocket<SSL, true>* ws, int code, std::string_view message) {
+  void Close_(uWS::WebSocket<SSL, true, PerSocketData>* ws, int code, std::string_view message) {
     Context ctx{
       .cpuwide_time_us = butil::cpuwide_time_us()
     };
