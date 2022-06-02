@@ -1,0 +1,11 @@
+[requires]
+gflags/2.2.2
+protobuf/3.11.3
+leveldb/1.22
+snappy/1.1.8
+
+[options]
+gflags:nothreads=False
+
+[generators]
+cmake
