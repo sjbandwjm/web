@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.10)
+
+project(uSockets)
+
+include_directories(./)
+
+file(GLOB code_SRC
+    "src/*.c"
+    "src/eventing/*.c"
+    "src/crypto/*.c"
+    "src/crypto/*.cpp"
+
+)
+
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -DDEBUG -g")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3 -flto")
+# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DLIBUS_NO_SSL -std=c11")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DLIBUS_USE_OPENSSL -std=c11")
+
+find_package(OpenSSL REQUIRED)
+include_directories(${OpenSSL_INCLUDE_DIR})
+link_libraries(
+  ${OpenSSL_LIBRARIES}
+)
+
+function(c_output_directory name)
+  # Set the output directory for build artifacts
+  set_target_properties(${name}
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+endfunction()
+
+add_library(uSockets ${code_SRC})
+c_output_directory(uSockets)

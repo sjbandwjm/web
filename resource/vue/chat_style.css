@@ -1,0 +1,52 @@
+html {
+    font-family: "Open Sans Light", Helvetica, Arial, sans-serif;
+}
+
+h2 {
+font-size: 16px;
+}
+
+.a11y-label {
+margin: 0;
+text-align: right;
+font-size: 0.7rem;
+width: 98%;
+}
+
+body {
+margin: 10px;
+background: #f5f9fa;
+}
+
+.output_scroll {
+    width: 80%;
+    height: 500px;
+    background-color: rgb(60, 89, 89);
+    overflow: auto;
+}
+
+.input_div {
+    width: 80%;
+    height: 100px;
+    background-color:#cccaca;
+    color: #202124;
+    border-radius: 5px;
+}
+
+.room_button {
+    background-color: #c7cbcc;
+    border-radius: 5px;
+    /* display: flex; */
+    /* flex-wrap: wrap; */
+    text-align: center;
+    width: 100%;
+}
+
+#room_list {
+    width: 20%;
+    height: 600px;
+    background-color:rgb(75, 74, 72);
+    float: right;
+}
+
+

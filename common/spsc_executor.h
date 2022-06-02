@@ -108,12 +108,13 @@ class SimplePthreadPool {
   std::vector<std::thread> threads_;
 };
 
+DECLARE_int32(keyed_spsc_worker_pthread_cnt);
 class SPSCExecutor {
  public:
   typedef void (*ExecutorType)(void*(*)(void*), void*);
 
   static void PthreadExecutor(void*(*fn)(void*), void* arg) {
-    static SimplePthreadPool pp(64);
+    static SimplePthreadPool pp(FLAGS_keyed_spsc_worker_pthread_cnt);
     pp.Post(fn, arg);
   }
 
@@ -272,7 +273,6 @@ class KeyedSPSCWorker {
       auto* entry = new ThunkEntry([storage, fn2=std::move(fn1)]() { fn2(storage); });
       bthread_t bid;
       bthread_start_background(&bid, nullptr, entry->entry(), entry);
-
       delete unit;
     });
   }

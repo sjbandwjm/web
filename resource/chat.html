@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <link href="styles/chat_style.css" rel="stylesheet" />
+    <script src="scripts/chat.js" defer></script>
+  </head>
+  <body>
+    <div id="room_list" class="scroll">
+        <p id="user_name_show"></p>
+    </div>
+    <div id="recvmsg" class="output_scroll">please login first!</div>
+    <div id="input_div">
+        <textarea id="input_msg" placeholder="input msg..." style="height: 95%;width: 100%;resize: none"></textarea>
+    </div>
+    <div id="menu">
+        <button id="login">Login</button>
+        <button>Logout</button>
+        <button id="enter_room">EnterRoom</button>
+        <button id="create_room">CreateRoom</button>
+        <button id="sendmsg">Send</button>
+    </div>
+
+  </body>
+</html>

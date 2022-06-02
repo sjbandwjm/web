@@ -91,12 +91,13 @@ class Server {
     UpgradeHandler on_upgrade;
   };
 
-  static void Send(ConnectionHdl hdl, std::string&& msg, uWS::OpCode op = uWS::TEXT, bool compress = false) {
+  static void SendMove(ConnectionHdl hdl, std::string&& msg, uWS::OpCode op = uWS::TEXT, bool compress = false) {
     auto time = butil::cpuwide_time_us();
     if (auto conn = hdl.lock()) {
       conn->loop->defer([=](){
         if (auto conn = hdl.lock()) {
           if (conn->ws != nullptr) {
+            VLOG(1) << "test send " << msg;
             conn->ws->send(msg, op, compress);
             conn->server->ws_send << butil::cpuwide_time_us() - time;
           }
@@ -106,7 +107,7 @@ class Server {
   }
 
   static void Send(ConnectionHdl hdl, std::string_view msg, uWS::OpCode op = uWS::TEXT, bool compress = false) {
-    Send(hdl, std::move(std::string(msg.data(), msg.length())), op, compress);
+    SendMove(hdl, std::move(std::string(msg.data(), msg.length())), op, compress);
   }
 
   static void Close(ConnectionHdl hdl) {
@@ -182,6 +183,12 @@ class Server {
     return finished == finished_flag_;
   }
 
+  void InitSSL(std::string_view key_path, std::string_view cert_path, std::string_view passphrase) {
+    key_path_ = key_path;
+    cert_path_ = cert_path;
+    passphrase_ = passphrase;
+  }
+
   void Stop() {}
 
   void Join() {
@@ -197,7 +204,18 @@ class Server {
  private:
 
   void InitImpl_(int cnt, int port) {
-    auto endpontPtr = std::make_shared<UWSServer>();
+    if (SSL && (key_path_.empty() || cert_path_.empty())) {
+      LOG(ERROR) << "compiled with ssl, but not set cert";
+      return;
+    }
+
+    auto endpontPtr = std::make_shared<UWSServer>(uWS::SocketContextOptions{
+        /* There are example certificates in uWebSockets.js repo */
+	    .key_file_name = key_path_.c_str(),
+	    .cert_file_name = cert_path_.c_str(),
+	    .passphrase = passphrase_.c_str()
+	  });
+
     //此模版类中调用其他 模版类的 模版函数
     endpontPtr->template ws<PerSocketData>("/*", {
       .compression = uWS::SHARED_COMPRESSOR,
@@ -237,24 +255,6 @@ class Server {
           /* You may access ws->getUserData() here */
           this->Close_(ws, code, message);
       }
-      // .upgrade = std::bind(&Server::Upgrade_, this,
-      //                      std::placeholders::_1,
-      //                      std::placeholders::_2,
-      //                      std::placeholders::_3),
-      // .open = std::bind(&Server::Open_, this, std::placeholders::_1),
-      // .message = std::bind(&Server::Message_,
-      //                      this,
-      //                     std::placeholders::_1,
-      //                     std::placeholders::_2,
-      //                     std::placeholders::_3),
-      // .drain = nullptr,
-      // .ping = std::bind(&Server::Ping_, this, std::placeholders::_1),
-      // .pong = std::bind(&Server::Pong_, this, std::placeholders::_1),
-      // .close =std::bind(&Server::Close_,
-      //                   this,
-      //                   std::placeholders::_1,
-      //                   std::placeholders::_2,
-      //                   std::placeholders::_3)
     });
 
     for (auto it: http_handlers_) {
@@ -418,6 +418,10 @@ class Server {
   std::condition_variable cv_;
 
   std::map<std::string, std::function<void(uWS::HttpResponse<SSL>*, uWS::HttpRequest*)>> http_handlers_;
+  // ssl
+  std::string key_path_;
+  std::string cert_path_;
+  std::string passphrase_;
 
   bvar::LatencyRecorder ws_send;
   bvar::Adder<int64_t> ws_receive;

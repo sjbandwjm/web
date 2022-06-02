@@ -2,7 +2,15 @@
 
 BUILD_TYPE=$1
 if [[ "${BUILD_TYPE}" == "" ]]; then
-    BUILD_TYPE=Debug
+    BUILD_TYPE=Release
 fi
 
-mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -S .. -B . && make -j $(nproc)
+cd thirdparty/brpc
+git apply --check ../../patch/find_package_patch.patch && git apply ../../patch/find_package_patch.patch
+cd ../..
+
+cp patch/usockets_patch.patch thirdparty/uWebsockets/uSockets/CMakeLists.txt
+
+mkdir -p build && cd build
+conan install .. --output-folder=. --build=missing -nr
+cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} && make -j ${nproc}

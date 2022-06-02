@@ -1,0 +1,383 @@
+<script src="vue.global.js"></script>
+
+<div id="app">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <link href="chat_style.css" rel="stylesheet" />
+  </head>
+  <body style="background-color: rgb(163, 160, 160);">
+    <a v-for="n in notice"> <strong>{{n}}</strong>&nbsp;&nbsp;</a><br>
+    <div @click="SwitchToRoom(cur_room_id)">
+      <div id="room_list" class="output_scroll">
+          <div style="width: 100%;" v-for="info, room_id in rooms">
+            <button  class="room_button"  :class="{ blink: info.is_blink }"  :style="GetSelectButtonColor(room_id)" @click="SwitchToRoom(room_id)">
+              <a style="display: block;">房间id：{{room_id}}</a>
+              <a v-if="info.unread_cnt > 0" style="display: block;">未读消息：{{info.unread_cnt}}</a>
+            </button>
+            <li v-if="room_id===cur_room_id" v-for="user_id in info.user_list"> {{user_id}} </li>
+          </div>
+      </div>
+      <div id="recvmsg" class="output_scroll" style="color: rgb(124, 189, 167);">
+        <p v-if="cur_room_id!==''" v-for="message in rooms[cur_room_id].messages">{{message}}</p>
+        <p v-else v-for="message in robot_messages">{{message}}</p>
+      </div>
+      <div class="input_div">
+          <textarea placeholder="input msg..." @focus="HandleInputFous" @blur="HandleinputBlur" @input="HandleInput" @keyup.enter="SendMsg" v-model="input_msg" class="input_div" style="border: 2px solid rgb(47, 47, 47); width: 100%; height: 100%;  resize: none;">
+          </textarea>
+      </div>
+    </div>
+    <div >
+      <button style="margin-right: 20px;" @click="Login">登录</button>
+      <button style="margin-right: 20px;" @click="EnterRoom">进入房间</button>
+      <button style="margin-right: 20px;" @click="CreateRoom">创建房间</button>
+      <button style="margin-right: 20px;" @click="SendMsg">发送</button>
+      <!-- <button id="logout" @click="Logout">logout</button> -->
+      <!-- <button @click="QuitRoom">quit_room</button> -->
+      <!-- <button @click="Test" style="background-color: rgb(118, 146, 107);">test</button> -->
+    </div>
+  </body>
+</div>
+
+<style>
+  .blink {
+    animation: blinker 1s linear infinite;
+    color: red;
+  }
+
+  @keyframes blinker {
+    50% {
+      opacity: 0;
+    }
+  }
+</style>
+
+<script>
+
+function NewRoom(room_id) {
+  return new Room(room_id);
+}
+
+class Room {
+  constructor(room_id) {
+    room_id = room_id;
+  }
+
+  PushMsg(msg) {
+    this.messages.push(msg);
+    if (this.messages.length > 1024) {
+      this.messages.shift();
+    }
+  }
+
+  OnMsgBlink() {
+    this.is_blink = true;
+    setTimeout(()=>{
+      this.is_blink = false;
+    }, 1000);
+  }
+
+  messages = [];
+  user_list = new Set();
+  unread_cnt = 0;
+  room_id = "";
+  is_blink = false
+}
+
+let g_websock = null;
+let g_islogin = false;
+const { createApp, ref, computed, nextTick} = Vue
+createApp({
+  setup() {
+    // 在模板中启用 v-focus
+    const vFocus = {
+      mounted: (el) => el.focus()
+    }
+    const count = ref(0);
+    const cur_room_id = ref("");
+    const rooms = ref({})
+    const robot_messages = ref([]);
+    let input_msg = ref("");
+    let cur_date = new Date();
+    const notice = ref([cur_date.toLocaleDateString(), "welcome! please login first."]);
+
+    let user_name = ref("");
+
+    // let cur_room = rooms.value[cur_room_id.value];
+    let cur_room = null;
+
+    function Login() {
+      if (g_islogin) {
+        return;
+      }
+
+      let protocol = document.location.protocol;
+      let ws_url;
+      if (protocol === "http:") {
+          ws_url = "ws://";
+      } else if (protocol === "https:") {
+          ws_url = "wss://";
+      }
+      ws_url = ws_url + window.location.host;
+      g_websock = new WebSocket(ws_url);
+      InitWeb(g_websock);
+    }
+
+    function Logout() {
+      ShowMsgToCur("logout");
+    }
+
+    function EnterRoom() {
+      let room_id = prompt("请输入房间ID:");
+      if (!room_id) return;
+
+      let passwd = prompt("请输入房间密码：");
+
+      let req = {
+          "cmd":"enter_room",
+          "room_id":String(room_id),
+          "passwd":String(passwd)
+      }
+      console.log("send: " + JSON.stringify(req));
+      g_websock.send(JSON.stringify(req));
+    }
+
+    function CreateRoom() {
+      let room_id = prompt("请输入房间ID:");
+      if (!room_id) return;
+
+      let passwd = prompt("请输入房间密码：");
+
+      let token = prompt("请输入token:");
+
+      let req = {
+          "cmd":"create_room",
+          "room_id":String(room_id),
+          "passwd":String(passwd),
+          "token":token
+      }
+      console.log("send: " + JSON.stringify(req));
+      g_websock.send(JSON.stringify(req));
+    }
+
+    function QuitRoom() {
+      room_id = prompt("请输入退出的房间id：");
+      delete rooms.value[room_id];
+    }
+
+    function SendMsg() {
+      // ShowMsgToCur(input_msg.value);
+      if (input_msg.value.length === 0) {
+        return;
+      }
+
+      let req = {
+          "cmd":"send_message",
+          "to_room_id": cur_room_id.value,
+          "message": String(input_msg.value)
+      }
+      console.log("send: " + JSON.stringify(req));
+      g_websock.send(JSON.stringify(req));
+      input_msg.value = "";
+    }
+
+    function SwitchToRoom(room_id) {
+      if (!(room_id in rooms.value)) {
+        return;
+      }
+      cur_room_id.value = room_id;
+      cur_room = rooms.value[cur_room_id.value];
+      cur_room.unread_cnt = 0;
+      recvmsg.scrollTop = recvmsg.scrollHeight
+    }
+
+    function GetSelectButtonColor (room_id) {
+      if (room_id === cur_room_id.value) {
+        return {
+          border: "5px solid rgb(118, 146, 107)"
+        };
+      }
+      return {}
+    }
+
+    function HandleInput(event) {
+      // console.log(event.target.value)
+    }
+
+    function HandleInputFous() {
+      console.log("input foucs");
+    }
+
+    function HandleinputBlur() {
+      console.log("input blur");
+    }
+
+    function Test() {
+      let recvmsg = document.querySelector("#recvmsg");
+                // 如果消息超过容器高度，滚动到底部
+      console.log(recvmsg.scrollTop, recvmsg.scrollHeight);
+    }
+
+    return {
+      Login,
+      Logout,
+      EnterRoom,
+      CreateRoom,
+      SendMsg,
+      Test,
+      SwitchToRoom,
+      QuitRoom,
+      GetSelectButtonColor,
+      HandleInput,
+      HandleInputFous,
+      HandleinputBlur,
+      notice,
+      rooms,
+      cur_room_id,
+      user_name,
+      input_msg,
+      robot_messages,
+    }
+
+    function ShowMsgToCur(msg) {
+      if (!cur_room) {
+        robot_messages.value.push(msg);
+        return;
+      }
+      cur_room.PushMsg(msg);
+    }
+
+    // websocket
+    function InitWeb (ws) {
+      ws.onopen = function(event) {
+        let user_name = prompt("请输入用户昵称：")
+        if (!user_name) return;
+
+        let req = {
+            "cmd":"login",
+            "user_name": String(user_name)
+        }
+        console.log("send: " + JSON.stringify(req))
+        g_websock.send(JSON.stringify(req));
+      };
+
+      // 监听消息接收事件
+      ws.onmessage = function(event) {
+          console.log("on_message: " + event.data);
+          ProcessRecvMsg(String(event.data));
+      };
+
+      // 监听连接关闭事件
+      ws.onclose = function(event) {
+          if (event.wasClean) {
+          console.log("WebSocket连接已关闭，代码:", event.code, "原因:", event.reason);
+          } else {
+          console.log("WebSocket连接异常断开");
+          }
+      };
+
+      // 监听连接错误事件
+      ws.onerror = function(event) {
+          console.error("WebSocket连接错误:", event);
+      };
+    }
+
+    function ProcessRecvMsg(msg) {
+        let json_res = null
+        try {
+            json_res = JSON.parse(msg);
+        } catch(err) {
+            ShowMsgToCur(msg);
+            return;
+        }
+
+        const cmd_process = {
+            "on_login": function() {
+                const name = json_res["user_name"];
+                const user_id = json_res["user_id"];
+                user_name.value = name;
+                notice.value[1] = "welcome! " + name;
+                g_islogin = true
+            },
+
+            "recv_message" : function() {
+                const room_id = json_res["from_room"];
+                const cur_date = new Date(json_res["timestamp"]);
+                let new_message = "[" + json_res["from_user"] +" " + cur_date.toLocaleTimeString() + "]: " + json_res["message"];
+                if (!(room_id in rooms.value)) {
+                  console.log("no such room_id" + room_id + " msg:" + String(json_res));
+                  return;
+                }
+
+                rooms.value[room_id].PushMsg(new_message);
+                rooms.value[room_id].OnMsgBlink();
+                if (cur_room_id.value !== room_id) {
+                  rooms.value[room_id].unread_cnt++;
+                  return;
+                }
+
+                let recvmsg = document.querySelector("#recvmsg");
+                // 如果消息超过容器高度，滚动到底部
+                nextTick(()=>{
+                  recvmsg.scrollTop = recvmsg.scrollHeight
+                });
+
+            },
+
+            "enter_room_success": function() {
+                // room_id
+                const room_id = json_res["from_room_id"]
+                if (!(room_id in rooms.value)) {
+                  rooms.value[room_id] = NewRoom(room_id);
+                }
+
+                SwitchToRoom(room_id);
+            },
+
+            "recv_user_list":function(){
+              let room_id = json_res["from_room_id"];
+              if (!(room_id in rooms.value)) {
+                  console.log("no such room");
+                  return
+              }
+
+              rooms.value[room_id].user_list = new Set(json_res["users"]);
+            },
+
+            "on_user_enter":function() {
+              const room_id = json_res["from_room_id"];
+              if (!(room_id in rooms.value)) {
+                  console.log("no such room");
+                  return
+              }
+
+              const user_id = json_res["from_user_id"];
+              rooms.value[room_id].user_list.add(user_id);
+            },
+
+            "on_user_quit":function() {
+                const room_id = json_res["from_room_id"];
+                if (!(room_id in rooms.value)) {
+                    console.log("no such room");
+                    return
+                }
+
+                const user_id = json_res["from_user_id"];
+                rooms.value[room_id].user_list.delete(user_id);
+                console.log(rooms.value[room_id].user_list);
+            }
+        }
+
+        if (json_res["cmd"] in cmd_process) {
+            console.log(json_res["cmd"])
+            cmd_process[json_res["cmd"]]();
+        } else {
+          ShowMsgToCur(msg)
+        }
+    }
+  }
+}).mount('#app');
+
+
+
+</script>
