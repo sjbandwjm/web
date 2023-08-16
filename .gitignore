@@ -5,6 +5,7 @@
 !.vscode/launch.json
 
 #temp file
+CMakeUserPresets.json
 build/
 .build/
 track_agent/vendor/
